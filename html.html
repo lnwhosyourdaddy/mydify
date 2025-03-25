@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>智能答题系统</title>
+    <style>
+        /* 首页样式 */
+        #home { 
+            max-width: 500px;
+            margin: 50px auto;
+            text-align: center;
+        }
+        .config-panel {
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        select {
+            padding: 8px;
+            margin: 10px;
+            border: 1px solid #ddd;
+            width: 200px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        /* 考试界面 */
+        #examContainer {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            display: none;
+        }
+        .question {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .options label {
+            display: block;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .correct { background: #d4edda !important; }
+        .wrong { background: #f8d7da !important; }
+        #progress {
+            font-size: 16px;
+            color: #666;
+            margin: 10px 0;
+        }
+
+        /* 结果页 */
+        #result {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        #accuracy {
+            font-size: 24px;
+            color: #28a745;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- 首页 -->
+    <div id="home">
+        <div class="config-panel">
+            <h2>欢迎使用智能答题系统</h2>
+            <label>请选择题目数量：
+                <select id="questionCount">
+                    <option value="1" selected>1题</option>
+                    <option value="5">5题</option>
+                    <option value="10">10题</option>
+                    <option value="15">15题</option>
+                </select>
+            </label>
+            <button onclick="startExam()">开始答题</button>
+        </div>
+    </div>
+
+    <!-- 考试界面 -->
+    <div id="examContainer">
+        <div id="timer">剩余时间：5秒</div> <!-- 倒计时元素 -->
+        <div id="progress">第0题/共0题</div>
+        <div id="questionContainer"></div>
+        <button onclick="nextQuestion()">下一题</button>
+    </div>
+
+    <!-- 结果页 -->
+    <div id="result">
+        <h2>答题完成！</h2>
+        <p>正确率：<span id="accuracy">0%</span></p>
+        <button onclick="goHome()">返回首页</button>
+        <button onclick="restartExam()">重新答题</button>
+    </div>
+
+<script>
+// 考试状态管理
+let examState = {
+    totalQuestions: 0,        // 总题数
+    currentQuestion: 0,       // 当前题号
+    correctAnswers: 0,       // 正确数
+    selectedOptions: new Set(), // 已选题目索引（防止重复）
+    timeLeft: 5,        // 当前剩余时间
+    timerId: null        // 计时器ID
+};
+
+// 知识点数据库
+const knowledgeBase = [
+    {
+        question: "制订项目章程的输入包括",
+        answer: ["立项管理文件", "协议", "事业环境因素", "组织过程资产"]
+    },
+    {
+        question: "制订项目章程的工具和技术包括",
+        answer: ["专家判断", "数据收集", "人际关系与团队技能", "会议"]
+    },
+    {
+        question: "制订项目章程的输出包括",
+        answer: ["项目章程", "假设日志"]
+    },
+    {
+        question: "制订项目管理计划的输入包括",
+        answer: ["项目章程", "其他知识领域规划过程的输出","事业环境因素","组织过程资产"]
+    },
+    {
+        question: "制订项目管理计划的工具和技术包括",
+        answer: ["专家判断", "数据收集", "人际关系与团队技能", "会议"]
+    },
+    {
+        question: "制订项目管理计划的输出包括",
+        answer: ["项目管理计划"]
+    }
+];
+
+// 所有备选条目
+const allItems = [
+    "立项管理文件", "协议", "事业环境因素", "组织过程资产",
+    "专家判断", "数据收集", "人际关系与团队技能", "会议",
+    "项目章程", "假设日志","其他知识领域规划过程的输出",
+    "项目管理计划"
+];
+
+// 开始考试
+function startExam() {
+    examState = {
+        totalQuestions: parseInt(document.getElementById('questionCount').value),
+        currentQuestion: 0,
+        correctAnswers: 0,
+        selectedOptions: new Set()
+    };
+    document.getElementById('home').style.display = 'none';
+    document.getElementById('examContainer').style.display = 'block';
+    document.getElementById('result').style.display = 'none';
+    showNextQuestion();
+}
+
+// 显示下一题
+function nextQuestion() {
+    if (examState.currentQuestion >= examState.totalQuestions) {
+        showResult();
+        return;
+    }
+    showNextQuestion();
+}
+
+function showNextQuestion() {
+    // 停止上一题计时
+    clearInterval(examState.timerId);
+    examState.currentQuestion++;
+    updateProgress();
+    
+    // 获取随机题目（不重复）
+    let questionIndex;
+    do {
+        questionIndex = Math.floor(Math.random() * knowledgeBase.length);
+    } while (examState.selectedOptions.has(questionIndex));
+    
+    examState.selectedOptions.add(questionIndex);
+    const currentQuestion = knowledgeBase[questionIndex];
+    
+    // 生成选项
+    const options = generateOptions(currentQuestion);
+    startTimer(); // 启动新计时器
+    renderQuestion(currentQuestion.question, options);
+}
+
+// 生成题目选项
+function generateOptions(currentQuestion) {
+    const correctAnswer = currentQuestion.answer.join("、");
+    const options = new Set([correctAnswer]);
+
+    // 生成干扰项
+    while (options.size < 4) {
+        const itemCount = Math.floor(Math.random() * 2) + 2; // 2-3个条目
+        const shuffled = shuffleArray([...allItems]);
+        const combination = shuffled.slice(0, itemCount).join("、");
+        
+        if (!options.has(combination) && combination !== correctAnswer) {
+            options.add(combination);
+        }
+    }
+
+    return shuffleArray(Array.from(options)).map(text => ({
+        text,
+        isCorrect: text === correctAnswer
+    }));
+}
+
+// 渲染题目
+function renderQuestion(questionText, options) {
+    const container = document.getElementById("questionContainer");
+    container.innerHTML = `
+        <div class="question">
+            <h3>${questionText}</h3>
+            <div class="options">
+                ${options.map((opt, i) => `
+                    <label>
+                        <input type="radio" name="answer" 
+                               onchange="checkAnswer(this, ${opt.isCorrect})">
+                        ${String.fromCharCode(65 + i)}. ${opt.text}
+                    </label>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+// 检查答案
+function checkAnswer(selectedElement, isCorrect) {
+    // 停止计时
+    clearInterval(examState.timerId);
+    const labels = document.querySelectorAll('label');
+    labels.forEach(label => {
+        label.classList.remove('correct', 'wrong');
+        if (label.contains(selectedElement)) {
+            label.classList.add(isCorrect ? 'correct' : 'wrong');
+        }
+    });
+    
+    if (isCorrect) examState.correctAnswers++;
+}
+
+// 更新进度
+function updateProgress() {
+    document.getElementById('progress').textContent = 
+        `第${examState.currentQuestion}题/共${examState.totalQuestions}题`;
+}
+
+// 显示结果
+function showResult() {
+    // 清除计时器
+    clearInterval(examState.timerId);
+    document.getElementById('examContainer').style.display = 'none';
+    document.getElementById('result').style.display = 'block';
+    const accuracy = (examState.correctAnswers / examState.totalQuestions * 100).toFixed(1);
+    document.getElementById('accuracy').textContent = `${accuracy}%`;
+}
+
+// 返回首页
+function goHome() {
+    location.reload();
+}
+
+// 重新答题
+function restartExam() {
+    // 重置计时状态
+    clearInterval(examState.timerId);
+    examState.timeLeft = 5;
+    startExam();
+}
+
+// 实用函数：数组随机排序
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+// 新增计时器控制函数
+function startTimer() {
+    // 重置时间并更新显示
+    examState.timeLeft = 5;
+    updateTimerDisplay();
+    
+    // 清除已有计时器
+    if(examState.timerId) clearInterval(examState.timerId);
+    
+    // 启动新计时器
+    examState.timerId = setInterval(() => {
+        examState.timeLeft--;
+        updateTimerDisplay();
+        
+        if(examState.timeLeft <= 0) {
+            handleTimeout();
+        }
+    }, 1000);
+}
+
+function updateTimerDisplay() {
+    document.getElementById('timer').textContent = `剩余时间：${examState.timeLeft}秒`;
+}
+
+function handleTimeout() {
+    clearInterval(examState.timerId);
+    checkAnswer(null, false); // 视为未答
+    if(examState.currentQuestion < examState.totalQuestions) {
+        nextQuestion();
+    }
+}
+
+// 超时处理
+function handleTimeout() {
+    const options = document.getElementsByName('answer');
+    let answered = false;
+    
+    // 检查是否已选择答案
+    options.forEach(option => {
+        if(option.checked) answered = true;
+    });
+    
+    if(!answered) {
+        alert("时间到，本题未作答！");
+    }
+    
+    nextQuestion();
+}
+</script>
+</body>
+</html>
