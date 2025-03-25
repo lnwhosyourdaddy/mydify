@@ -278,7 +278,7 @@ function goHome() {
 function restartExam() {
     // 重置计时状态
     clearInterval(examState.timerId);
-    examState.timeLeft = 5;
+    examState.timeLeft = 60;
     startExam();
 }
 
@@ -294,7 +294,7 @@ function shuffleArray(array) {
 // 新增计时器控制函数
 function startTimer() {
     // 重置时间并更新显示
-    examState.timeLeft = 5;
+    examState.timeLeft = 60;
     updateTimerDisplay();
     
     // 清除已有计时器
