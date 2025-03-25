@@ -92,7 +92,7 @@
 
     <!-- 考试界面 -->
     <div id="examContainer">
-        <div id="timer">剩余时间：5秒</div> <!-- 倒计时元素 -->
+        <div id="timer">剩余时间：60秒</div> <!-- 倒计时元素 -->
         <div id="progress">第0题/共0题</div>
         <div id="questionContainer"></div>
         <button onclick="nextQuestion()">下一题</button>
@@ -113,7 +113,7 @@ let examState = {
     currentQuestion: 0,       // 当前题号
     correctAnswers: 0,       // 正确数
     selectedOptions: new Set(), // 已选题目索引（防止重复）
-    timeLeft: 5,        // 当前剩余时间
+    timeLeft: 60,        // 当前剩余时间
     timerId: null        // 计时器ID
 };
 
