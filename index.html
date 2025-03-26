@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>智能答题系统</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.8.1/font/bootstrap-icons.min.css">
+    <style>
+        .exam-card { border-radius: 15px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .option-item { transition: all 0.2s ease; }
+        .option-item:hover { transform: translateY(-2px); }
+        #timer {
+            position: fixed; top: 1rem; right: 1rem; z-index: 1000;
+            background: rgba(255, 193, 7, 0.9); padding: 0.5rem 1rem;
+            border-radius: 25px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        @media (max-width: 576px) {
+            .config-card { margin: 1rem; }
+            .question-text { font-size: 1.1rem; }
+        }
+        .correct { background: #d4edda !important; }
+        .wrong { background: #f8d7da !important; }
+    </style>
+  </head>
+<body class="bg-light">
+    <div class="container">
+        <!-- 首页 -->
+        <div id="home" class="row justify-content-center mt-5">
+            <div class="col-12 col-md-8 col-lg-6">
+                <div class="card config-card exam-card">
+                    <div class="card-body p-4">
+                        <h2 class="card-title text-center mb-4">📚 智能答题系统</h2>
+                        <div class="mb-4">
+                            <input type="file" id="excelFile" class="form-control" 
+                                   accept=".xlsx,.xls" hidden
+                                   onchange="handleFileSelect(event)">
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-outline-primary" 
+                                        onclick="document.getElementById('excelFile').click()">
+                                    <i class="bi bi-file-earmark-spreadsheet"></i> 上传题库文件
+                                </button>
+                                <button class="btn btn-success" 
+                                        onclick="parseExcel()" 
+                                        id="parseBtn" 
+                                        disabled>
+                                    <i class="bi bi-gear"></i> 解析文件
+                                </button>
+                                <small class="text-muted text-center mt-1">支持.xlsx格式</small>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">题目数量</label>
+                            <select id="questionCount" class="form-select">
+                                <option value="5">5题</option>
+                                <option value="10" selected>10题</option>
+                                <option value="20">20题</option>
+                                <option value="50">50题</option>
+                            </select>
+                        </div>
+
+                        <div class="d-grid">
+                            <button class="btn btn-primary btn-lg" onclick="startExam()">
+                                <i class="bi bi-patch-check"></i> 开始答题
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 考试界面 -->
+        <div id="examContainer" class="d-none">
+            <div id="timer" class="d-flex align-items-center gap-2">
+                <i class="bi bi-clock-history"></i>
+                <span id="timeDisplay">60秒</span>
+            </div>
+
+            <div class="card exam-card mt-4">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="badge bg-primary">当前进度</span>
+                        <span id="progress" class="text-muted">0/0</span>
+                    </div>
+
+                    <h4 class="question-text mb-4" id="questionText"></h4>
+
+                    <div id="optionsContainer" class="list-group gap-2"></div>
+
+                    <div class="d-grid gap-2 mt-4">
+                        <button class="btn btn-primary" onclick="nextQuestion()">
+                            下一题 <i class="bi bi-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 结果页 -->
+        <div id="result" class="d-none">
+            <div class="card exam-card mt-5">
+                <div class="card-body p-4 text-center">
+                    <h2 class="mb-3">🎉 答题完成！</h2>
+                    <div class="display-4 text-success mb-4" id="accuracy">0%</div>
+                    
+                    <div class="d-grid gap-2 col-8 mx-auto">
+                        <button class="btn btn-outline-primary" onclick="goHome()">
+                            <i class="bi bi-house-door"></i> 返回首页
+                        </button>
+                        <button class="btn btn-primary" onclick="restartExam()">
+                            <i class="bi bi-arrow-repeat"></i> 重新答题
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <!-- XLSX -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.5/xlsx.full.min.js"></script>
+
+    <script>
+      let itemsByCategory = {};
+      let knowledgeBase = [];
+      let selectedFile = null;
+
+      // 文件选择处理
+      function handleFileSelect(event) {
+          selectedFile = event.target.files[0];
+          document.getElementById('parseBtn').disabled = !selectedFile;
+      }
+
+
+      // 解析Excel文件
+      function parseExcel() {
+          if (!selectedFile) {
+              alert("请先选择文件");
+              return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = function(e) {
+              try {
+                  const data = new Uint8Array(e.target.result);
+                  const workbook = XLSX.read(data, { type: 'array' });
+                  
+                  // 解析题目表
+                  const questionSheet = workbook.Sheets[workbook.SheetNames[0]];
+                  knowledgeBase = XLSX.utils.sheet_to_json(questionSheet).map(item => ({
+                      question: item['问题'],
+                      answer: item['正确答案'].split(/[、,]/),
+                      category: item['分类号'].toString()
+                  }));
+
+                  // 解析备选条目表
+                  const itemSheet = workbook.Sheets[workbook.SheetNames[1]];
+                  itemsByCategory = XLSX.utils.sheet_to_json(itemSheet).reduce((acc, item) => {
+                      const category = item['分类号'].toString();
+                      acc[category] = acc[category] || [];
+                      acc[category].push(item['备选项条目']);
+                      return acc;
+                  }, {});
+
+                  alert(`题库加载成功！\n题目数量：${knowledgeBase.length}\n分类数量：${Object.keys(itemsByCategory).length}`);
+                  document.getElementById('parseBtn').disabled = true;
+              } catch (error) {
+                  alert("文件解析失败，请检查格式");
+                  console.error(error);
+              }
+          };
+          reader.readAsArrayBuffer(selectedFile);
+      }
+
+        // 开始考试
+        function startExam() {
+            examState = {
+                totalQuestions: parseInt(document.getElementById('questionCount').value),
+                currentQuestion: 0,
+                correctAnswers: 0,
+                selectedOptions: new Set()
+            };
+            document.getElementById('home').classList.add('d-none');
+            document.getElementById('examContainer').classList.remove('d-none');
+            document.getElementById('result').classList.add('d-none');
+            showNextQuestion();
+        }
+
+        // 显示下一题
+        function nextQuestion() {
+            if (examState.currentQuestion >= examState.totalQuestions) {
+                showResult();
+                return;
+            }
+            showNextQuestion();
+        }
+
+        function showNextQuestion() {
+            // 停止上一题计时
+            clearInterval(examState.timerId);
+            examState.currentQuestion++;
+            updateProgress();
+            
+            // 获取随机题目（不重复）
+            let questionIndex;
+            do {
+                questionIndex = Math.floor(Math.random() * knowledgeBase.length);
+            } while (examState.selectedOptions.has(questionIndex));
+            
+            examState.selectedOptions.add(questionIndex);
+            const currentQuestion = knowledgeBase[questionIndex];
+            
+            // 生成选项
+            const options = generateOptions(currentQuestion);
+            startTimer(); // 启动新计时器
+            renderQuestion(currentQuestion.question, options);
+        }
+
+        // 生成题目选项
+        function generateOptions(currentQuestion) {
+            const correctAnswer = currentQuestion.answer.join("、");
+            const category = currentQuestion.category.toString();
+            const categoryItems = itemsByCategory[category] || [];
+            const correctItemCount = currentQuestion.answer.length;
+            const options = new Set([correctAnswer]);
+
+            // 生成参数配置
+            const MAX_ATTEMPTS = 100; // 防死循环最大尝试次数
+            const VARIATION_RANGE = 1; // 条目数量波动范围
+            
+            let attempts = 0;
+
+            // 生成同分类干扰项
+            while (options.size < 4 && attempts < MAX_ATTEMPTS) {
+                attempts++;
+                
+                // 动态计算条目数量范围
+                const baseCount = Math.max(1, correctItemCount - VARIATION_RANGE);
+                const maxCount = correctItemCount + VARIATION_RANGE;
+                let targetCount = baseCount + Math.floor(Math.random() * (maxCount - baseCount + 1));
+                
+                // 限制在可用条目范围内
+                targetCount = Math.min(targetCount, categoryItems.length);
+                targetCount = Math.max(targetCount, 1);  // 至少1个条目
+                
+                // 生成组合
+                const combination = shuffleArray([...categoryItems])
+                    .slice(0, targetCount)
+                    .sort() // 保持组合顺序一致
+                    .join("、");
+                
+                // 有效性检查
+                if (!options.has(combination) && combination !== correctAnswer) {
+                    options.add(combination);
+                }
+            }
+
+            // 补充选项机制
+            if (options.size < 4) {
+                const backupOptions = [
+                    "暂无有效干扰项",
+                    "请检查条目配置",
+                    "条目组合生成失败"
+                ];
+                while (options.size < 4) {
+                    options.add(backupOptions[options.size - 1]);
+                }
+            }
+
+            return shuffleArray(Array.from(options)).map(text => ({
+                text,
+                isCorrect: text === correctAnswer,
+                // 可选：添加调试信息
+                debugInfo: `组合数:${text.split("、").length}`
+            }));
+        }
+
+        // 渲染题目
+        function renderQuestion(questionText, options) {
+            const container = document.getElementById("optionsContainer");
+            container.innerHTML = options.map((opt, i) => `
+                <label class="list-group-item option-item rounded-pill">
+                    <input class="form-check-input me-2" type="radio" name="answer" data-is-correct="${opt.isCorrect}" 
+     onchange="checkAnswer(this, ${opt.isCorrect})">                        
+                    ${String.fromCharCode(65 + i)}. ${opt.text}
+                </label>
+              `).join('');
+              document.getElementById("questionText").textContent = questionText;
+          }
+
+        // 检查答案
+        function checkAnswer(selectedElement, isCorrect) {
+            // 停止计时
+            clearInterval(examState.timerId);
+            const labels = document.querySelectorAll('#optionsContainer label');
+    
+            // 先移除所有样式
+            labels.forEach(label => {
+                label.classList.remove('correct', 'wrong');
+            });
+
+            // 标记所有正确答案
+            labels.forEach(label => {
+                const input = label.querySelector('input');
+                if (input && input.dataset.isCorrect === 'true') {
+                    label.classList.add('correct');
+                }
+            });
+
+            // 处理用户的选择
+            const selectedLabel = selectedElement.closest('label');
+            if (isCorrect) {
+                examState.correctAnswers++;
+            } else {
+                selectedLabel.classList.add('wrong');
+            }
+        }
+
+
+        // 更新进度
+        function updateProgress() {
+            document.getElementById('progress').textContent = 
+                `${examState.currentQuestion}/${examState.totalQuestions}`;
+        }
+
+        // 显示结果
+        function showResult() {
+            // 清除计时器
+            clearInterval(examState.timerId);
+            document.getElementById('examContainer').classList.add('d-none');
+            document.getElementById('result').classList.remove('d-none');
+            const accuracy = (examState.correctAnswers / examState.totalQuestions * 100).toFixed(1);
+            document.getElementById('accuracy').textContent = `${accuracy}%`;
+        }
+
+        // 返回首页
+        function goHome() {
+            location.reload();
+        }
+
+        // 重新答题
+        function restartExam() {
+            // 重置计时状态
+            clearInterval(examState.timerId);
+            examState.timeLeft = 60;
+            startExam();
+        }
+
+        // 实用函数：数组随机排序
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // 新增计时器控制函数
+        function startTimer() {
+            // 重置时间并更新显示
+            examState.timeLeft = 60;
+            updateTimerDisplay();
+            
+            // 清除已有计时器
+            if(examState.timerId) clearInterval(examState.timerId);
+            
+            // 启动新计时器
+            examState.timerId = setInterval(() => {
+                examState.timeLeft--;
+                updateTimerDisplay();
+                
+                if(examState.timeLeft <= 0) {
+                    handleTimeout();
+                }
+            }, 1000);
+        }
+
+        // 更新计时器显示
+        function updateTimerDisplay() {
+            document.getElementById('timeDisplay').textContent = `${examState.timeLeft}秒`;
+        }
+
+        // 超时处理
+        function handleTimeout() {
+            const options = document.getElementsByName('answer');
+            let answered = false;
+            
+            // 检查是否已选择答案
+            options.forEach(option => {
+                if(option.checked) answered = true;
+            });
+            
+            if(!answered) {
+                alert("时间到，本题未作答！");
+            }
+            
+            nextQuestion();
+        }
+    </script>
+</body>
+</html>
